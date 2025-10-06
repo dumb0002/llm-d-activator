@@ -1,0 +1,142 @@
+/*
+Copyright 2025 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package datastore
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"sync"
+
+	"k8s.io/apimachinery/pkg/labels"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	v1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
+	logutil "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/logging"
+)
+
+var (
+	errPoolNotSynced = errors.New("InferencePool is not initialized in data store")
+)
+
+// The datastore is a local cache of relevant data for the given InferencePool (currently all pulled from k8s-api)
+type Datastore interface {
+	// InferencePool operations
+	// PoolSet sets the given pool in datastore. If the given pool has different label selector than the previous pool
+	// that was stored, the function triggers a resync of the pods to keep the datastore updated. If the given pool
+	// is nil, this call triggers the datastore.Clear() function.
+	PoolSet(ctx context.Context, pool *v1.InferencePool) error
+	PoolGet() (*v1.InferencePool, error)
+	PoolHasSynced() bool
+	PoolLabelsMatch(podLabels map[string]string) bool
+
+	// Clears the store state, happens when the pool gets deleted.
+	Clear()
+}
+
+func NewDatastore(parentCtx context.Context) Datastore {
+	store := &datastore{
+		parentCtx:           parentCtx,
+		poolAndObjectivesMu: sync.RWMutex{},
+	}
+	return store
+}
+
+type datastore struct {
+	// parentCtx controls the lifecycle of the background metrics goroutines that spawn up by the datastore.
+	parentCtx context.Context
+	// poolAndObjectivesMu is used to synchronize access to pool and the objectives map.
+	poolAndObjectivesMu sync.RWMutex
+	pool                *v1.InferencePool
+}
+
+func (ds *datastore) Clear() {
+	ds.poolAndObjectivesMu.Lock()
+	defer ds.poolAndObjectivesMu.Unlock()
+	ds.pool = nil
+}
+
+// /// InferencePool APIs ///
+func (ds *datastore) PoolSet(ctx context.Context, pool *v1.InferencePool) error {
+	if pool == nil {
+		ds.Clear()
+		return nil
+	}
+	logger := log.FromContext(ctx)
+	ds.poolAndObjectivesMu.Lock()
+	defer ds.poolAndObjectivesMu.Unlock()
+
+	oldPool := ds.pool
+	ds.pool = pool
+	// if oldPool == nil || pool.Spec.TargetPorts[0] != oldPool.Spec.TargetPorts[0] {
+	// 	if source, found := datalayer.GetNamedSource[*dlmetrics.DataSource](dlmetrics.DataSourceName); found {
+	// 		source.SetPort(int32(pool.Spec.TargetPorts[0].Number))
+	// 	}
+	// }
+	if oldPool == nil || !reflect.DeepEqual(pool.Spec.Selector, oldPool.Spec.Selector) {
+		logger.V(logutil.DEFAULT).Info("Updating inference pool endpoints", "selector", pool.Spec.Selector)
+		// A full resync is required to address two cases:
+		// 1) At startup, the pod events may get processed before the pool is synced with the datastore,
+		//    and hence they will not be added to the store since pool selector is not known yet
+		// 2) If the selector on the pool was updated, then we will not get any pod events, and so we need
+		//    to resync the whole pool: remove pods in the store that don't match the new selector and add
+		//    the ones that may have existed already to the store.
+		// if err := ds.podResyncAll(ctx, reader); err != nil {
+		// 	return fmt.Errorf("failed to update pods according to the pool selector - %w", err)
+		// }
+	}
+
+	return nil
+}
+
+func (ds *datastore) PoolGet() (*v1.InferencePool, error) {
+	ds.poolAndObjectivesMu.RLock()
+	defer ds.poolAndObjectivesMu.RUnlock()
+	if !ds.PoolHasSynced() {
+		return nil, errPoolNotSynced
+	}
+	return ds.pool, nil
+}
+
+func (ds *datastore) PoolHasSynced() bool {
+	ds.poolAndObjectivesMu.RLock()
+	defer ds.poolAndObjectivesMu.RUnlock()
+	return ds.pool != nil
+}
+
+func (ds *datastore) PoolLabelsMatch(podLabels map[string]string) bool {
+	ds.poolAndObjectivesMu.RLock()
+	defer ds.poolAndObjectivesMu.RUnlock()
+	if ds.pool == nil {
+		return false
+	}
+	poolSelector := selectorFromInferencePoolSelector(ds.pool.Spec.Selector.MatchLabels)
+	podSet := labels.Set(podLabels)
+	return poolSelector.Matches(podSet)
+}
+
+func selectorFromInferencePoolSelector(selector map[v1.LabelKey]v1.LabelValue) labels.Selector {
+	return labels.SelectorFromSet(stripLabelKeyAliasFromLabelMap(selector))
+}
+
+func stripLabelKeyAliasFromLabelMap(labels map[v1.LabelKey]v1.LabelValue) map[string]string {
+	outMap := make(map[string]string)
+	for k, v := range labels {
+		outMap[string(k)] = string(v)
+	}
+	return outMap
+}
