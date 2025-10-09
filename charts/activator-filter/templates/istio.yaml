@@ -18,15 +18,7 @@ spec:
         name: envoy.filters.http.activator.ext_proc
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
-          failure_mode_allow: false
-          allow_mode_override: true
-          processing_mode:
-            request_header_mode: "SEND"
-            response_header_mode: "SKIP"
-            request_body_mode: "FULL_DUPLEX_STREAMED"
-            response_body_mode: "NONE"
-            request_trailer_mode: "SEND"
-            response_trailer_mode: "SKIP"
+          failure_mode_allow: true
           grpc_service:
             envoy_grpc:
-              cluster_name: dummy # TODO: should point to a noop cluster
+              cluster_name: no-op
