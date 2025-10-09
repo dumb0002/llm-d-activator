@@ -5,11 +5,14 @@ ARG BASE_IMAGE=gcr.io/distroless/static:nonroot
 
 ## Multistage build
 FROM ${BUILDER_IMAGE} AS builder
-ENV CGO_ENABLED=0
-ENV GOOS=linux
-ENV GOARCH=amd64
 ARG COMMIT_SHA=unknown
 ARG BUILD_REF
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ENV CGO_ENABLED=0
+ENV GOOS=$TARGETOS
+ENV GOARCH=$TARGETARCH
+
 
 # Dependencies
 WORKDIR /src
