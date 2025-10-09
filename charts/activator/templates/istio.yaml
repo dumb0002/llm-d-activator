@@ -1,32 +1,36 @@
 apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
-  name: {{ .Values.name }}-ext-proc
+  name: {{ include "activatorName" . }}
   namespace: {{ .Release.Namespace }}
 spec:
   configPatches:
-  - applyTo: HTTP_FILTER
+  - applyTo: HTTP_ROUTE
     match:
-      # context omitted so that this applies to both sidecars and gateways
-      listener:
-        filterChain:
-          filter:
-            name: "envoy.filters.network.http_connection_manager"
+      routeConfiguration:
+        vhost:
+          name: "*:{{ .Values.inferenceGateway.port }}"
+          route:
+            name: {{ .Release.Namespace }}.{{ .Values.route.name }}.0 # TODO: what .0?
     patch:
-      operation: INSERT_FIRST # TODO: insert before EPP
+      operation: MERGE
       value:
-        name: envoy.filters.http.activator.ext_proc
-        typed_config:
-          "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
-          failure_mode_allow: false
-          allow_mode_override: true
-          processing_mode:
-            request_header_mode: "SEND"
-            response_header_mode: "SKIP"
-            request_body_mode: "FULL_DUPLEX_STREAMED"
-            response_body_mode: "NONE"
-            request_trailer_mode: "SEND"
-            response_trailer_mode: "SKIP"
-          grpc_service:
-            envoy_grpc:
-              cluster_name: dummy # TODO: should point to a noop cluster
+        typed_per_filter_config:
+          envoy.filters.http.activator.ext_proc:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExtProcPerRoute
+            overrides:
+              grpc_service:
+                envoy_grpc:
+                  cluster_name: outbound|{{ .Values.activator.port }}||{{ include "activatorName" . }}.{{ .Release.Namespace }}.svc.cluster.local
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: {{ include "activatorName" . }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  host: {{ include "activatorName" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  trafficPolicy:
+      tls:
+        mode: SIMPLE
+        insecureSkipVerify: true

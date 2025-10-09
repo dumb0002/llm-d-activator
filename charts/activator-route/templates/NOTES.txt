@@ -1,1 +1,0 @@
-Activator extension deployed for HTTPRoute {{.Values.route.name }}

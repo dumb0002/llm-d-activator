@@ -22,6 +22,23 @@ This file describes how to test the Helm charts.
    $ kubectl scale deployment ms-sim-llm-d-modelservice-prefill --replicas=0 -n ${NAMESPACE}
    ```
 
+1. Patch the `ms-sim-llm-d-modelservice-decode` deployment to reduce the startup probe periodSeconds to 5 seconds (instead of 30 seconds):
+
+   ```bash
+   $ kubectl patch deployment ms-sim-llm-d-modelservice-decode \
+       --type='json' \
+       -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/startupProbe/periodSeconds", "value": 5}]' \
+       -n ${NAMESPACE}
+   ```
+1. Patch the `ms-sim-llm-d-modelservice-decode` deployment to reduce the the startup probe  initialDelaySeconds to 5 seconds (instead of 30 seconds):
+
+   ```bash
+   $ kubectl patch deployment ms-sim-llm-d-modelservice-decode \
+       --type='json' \
+       -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/startupProbe/initialDelaySeconds", "value": 5}]' \
+       -n ${NAMESPACE}
+   ```
+
 1. Build and load the activator image into your kind cluster:
 
    ```bash
@@ -32,18 +49,18 @@ This file describes how to test the Helm charts.
        TARGETARCH=arm64 # or TARGETARCH=amd64 depending on your machine
    ```
 
-1. Install the `activator` chart:
+1. Install the `activator-filter` chart:
 
    ```bash
-   $ helm install activator ./activator \
+   $ helm install activator-filter ./activator-filter \
        --set name=activator \
        --namespace ${NAMESPACE}
    ```
 
-1. Install the `activator-route` chart for the :
+1. Install the `activator` chart for the `ms-sim-llm-d-modelservice` HTTP route:
 
    ```bash
-   $ helm install activator-route ./activator-route \
+   $ helm install activator ./activator \
        --set name=activator-route \
        --set activator.image.registry=kind.local/llm-d-activator \
        --set activator.image.name=activator \
@@ -68,3 +85,5 @@ This file describes how to test the Helm charts.
                   "model": "random",
                   "prompt": "How are you today?"
                 }' | jq
+   ```
+   Observe that the request is completed successfully after 5 seconds and that the number of replicas for the `ms-sim-llm-d-modelservice-decode` deployment has been scaled to 1.
