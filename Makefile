@@ -23,7 +23,9 @@ SHELL = /usr/bin/env bash -o pipefail
 
 GIT_COMMIT_SHA ?= "$(shell git rev-parse HEAD 2>/dev/null)"
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
-PLATFORMS ?= linux/amd64
+TARGETOS ?= linux
+TARGETARCH ?= amd64
+PLATFORMS ?= ${TARGETOS}/${TARGETARCH}
 DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 IMAGE_BUILD_EXTRA_OPTS ?=
@@ -209,6 +211,8 @@ image-build: ## Build the EPP image using Docker Buildx.
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
 		--build-arg COMMIT_SHA=${GIT_COMMIT_SHA} \
 		--build-arg BUILD_REF=${BUILD_REF} \
+		--build-arg TARGETOS=${TARGETOS} \
+		--build-arg TARGETARCH=${TARGETARCH} \
 		$(PUSH) \
 		$(LOAD) \
 		$(IMAGE_BUILD_EXTRA_OPTS) ./
@@ -222,7 +226,8 @@ image-load: LOAD=--load ## Build the EPP image and load it in the local Docker r
 image-load: image-build
 
 .PHONY: image-kind
-image-kind: image-build ## Build the EPP image and load it to kind cluster $KIND_CLUSTER ("kind" by default).
+image-kind: LOAD=--load ## Build the EPP image and load it to kind cluster $KIND_CLUSTER ("kind" by default).
+image-kind: image-build
 	kind load docker-image $(IMAGE_TAG) --name $(KIND_CLUSTER)
 
 ##@ Lora Syncer
