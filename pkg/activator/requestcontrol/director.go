@@ -21,7 +21,6 @@ package requestcontrol
 import (
 	"context"
 
-	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/handlers"
@@ -37,9 +36,11 @@ type Datastore interface {
 
 // NewDirectorWithConfig creates a new Director instance with all dependencies.
 func NewDirectorWithConfig(datastore Datastore) *Director {
+	activator, _ := newActivator()
 	return &Director{
 		datastore:       datastore,
 		defaultPriority: 0, // define default priority explicitly
+		activator:       activator,
 	}
 }
 
@@ -50,6 +51,7 @@ type Director struct {
 	// no need to set this in the constructor, since the value we want is the default int val
 	// and value types cannot be nil
 	defaultPriority int
+	activator       *activator
 }
 
 // HandleRequest orchestrates the request lifecycle.
@@ -79,15 +81,9 @@ func (d *Director) HandleRequest(ctx context.Context, reqCtx *handlers.RequestCo
 		return reqCtx, err
 	}
 
-	poolName := pool.Name
-	namespace := pool.Namespace
+	logger.V(logutil.VERBOSE).Info("InferencePool found", "name", pool.Name, "namespace", pool.Namespace)
 
-	logger.V(logutil.VERBOSE).Info("InferencePool found", "name", poolName, "namespace", namespace)
-
-	// Check if target inferencePool have running candidate Pods
-	candidatePodLabel := selectorFromInferencePoolSelector(pool.Spec.Selector.MatchLabels)
-
-	if ready := InferencePoolReady(ctx, namespace, candidatePodLabel.String()); !ready {
+	if ready := d.activator.InferencePoolReady(ctx, pool); !ready {
 		return reqCtx, errutil.Error{Code: errutil.ServiceUnavailable, Msg: "failed to find active candidate pods in the inferencePool for serving the request"}
 	}
 
@@ -100,26 +96,5 @@ func (d *Director) HandleRequest(ctx context.Context, reqCtx *handlers.RequestCo
 }
 
 func (d *Director) HandleResponse(ctx context.Context, reqCtx *handlers.RequestContext) (*handlers.RequestContext, error) {
-	// response := &Response{
-	// 	RequestId: reqCtx.Request.Headers[requtil.RequestIdHeaderKey],
-	// 	Headers:   reqCtx.Response.Headers,
-	// }
-
-	// // TODO: to extend fallback functionality, handle cases where target pod is unavailable
-	// // https://github.com/kubernetes-sigs/gateway-api-inference-extension/issues/1224
-	// d.runPostResponsePlugins(ctx, reqCtx.SchedulingRequest, response, reqCtx.TargetPod)
-
 	return reqCtx, nil
-}
-
-func selectorFromInferencePoolSelector(selector map[v1.LabelKey]v1.LabelValue) labels.Selector {
-	return labels.SelectorFromSet(stripLabelKeyAliasFromLabelMap(selector))
-}
-
-func stripLabelKeyAliasFromLabelMap(labels map[v1.LabelKey]v1.LabelValue) map[string]string {
-	outMap := make(map[string]string)
-	for k, v := range labels {
-		outMap[string(k)] = string(v)
-	}
-	return outMap
 }
