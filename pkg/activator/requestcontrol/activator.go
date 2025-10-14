@@ -50,7 +50,7 @@ type activator struct {
 }
 
 func newActivator() (*activator, error) {
-	config, err := get_kubeconfig()
+	config, err := getKubeConfig()
 
 	if err != nil {
 		return nil, err
@@ -110,7 +110,7 @@ func (a *activator) InferencePoolReady(ctx context.Context, pool *v1.InferencePo
 	if scaleObject.Spec.Replicas > 0 {
 		if a.InferencePoolPodsReady(ctx, logger, namespace, pool.Annotations[ObjectNameKey], scaleObject.Spec.Replicas, scaleGracePeriod, gr, gvr) {
 			// Scale object exists and has no zero running replicas then do not scale it
-			logger.Info(fmt.Sprintf("Scale Object %s already have no zero replicas running: ", scaleObject.Name))
+			logger.V(logutil.DEBUG).Info(fmt.Sprintf("Scale Object %s have at least one replica ready. Skipping scaling from zero", scaleObject.Name))
 			return true
 		}
 	}
@@ -165,7 +165,7 @@ func (a *activator) ScaleInferencePool(ctx context.Context, logger logr.Logger, 
 	return a.InferencePoolPodsReady(ctx, logger, namespace, objData.name, objData.numReplicas, int(objData.scaleGracePeriod), gr, gvr)
 }
 
-func get_kubeconfig() (*rest.Config, error) {
+func getKubeConfig() (*rest.Config, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		kubeconfigPath := clientcmd.RecommendedHomeFile
