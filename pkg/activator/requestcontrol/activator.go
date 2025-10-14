@@ -162,12 +162,7 @@ func (a *activator) ScaleInferencePool(ctx context.Context, logger logr.Logger, 
 	}
 	logger.V(logutil.VERBOSE).Info(fmt.Sprintf("Scale Object %s in namespace %s scaled up to %d replicas with scale grace period %d \n", objData.name, namespace, objData.numReplicas, int(objData.scaleGracePeriod)))
 
-	if a.InferencePoolPodsReady(ctx, logger, namespace, objData.name, objData.numReplicas, int(objData.scaleGracePeriod), gr, gvr) {
-		// Scale object exists and has no zero running replicas then do not scale it
-		logger.Info(fmt.Sprintf("Object %s already have no zero replicas running: ", objData.name))
-		return true
-	}
-	return false
+	return a.InferencePoolPodsReady(ctx, logger, namespace, objData.name, objData.numReplicas, int(objData.scaleGracePeriod), gr, gvr)
 }
 
 func get_kubeconfig() (*rest.Config, error) {
