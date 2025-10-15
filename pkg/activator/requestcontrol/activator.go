@@ -195,15 +195,15 @@ func InitScaleClient(config *rest.Config) (scale.ScalesGetter, meta.RESTMapper, 
 
 func (a *activator) verifyPoolObjectAnnotations(logger logr.Logger, pool *v1.InferencePool) bool {
 	if _, ok := pool.Annotations[ObjectApiVersionKey]; !ok {
-		logger.Info("Annotation '%s' not found on pool '%s'\n", ObjectApiVersionKey, pool.Name)
+		logger.Info(fmt.Sprintf("Annotation '%s' not found on pool '%s'", ObjectApiVersionKey, pool.Name))
 		return false
 	}
 	if _, ok := pool.Annotations[ObjectkindKey]; !ok {
-		logger.Info("Annotation '%s' not found on pool '%s'\n", ObjectkindKey, pool.Name)
+		logger.Info(fmt.Sprintf("Annotation '%s' not found on pool '%s'", ObjectkindKey, pool.Name))
 		return false
 	}
 	if _, ok := pool.Annotations[ObjectNameKey]; !ok {
-		logger.Info("Annotation '%s' not found on pool '%s'\n", ObjectNameKey, pool.Name)
+		logger.Info(fmt.Sprintf("Annotation '%s' not found on pool '%s'", ObjectNameKey, pool.Name))
 		return false
 	}
 	return true
@@ -213,6 +213,6 @@ func (a *activator) getOptionalPoolAnnotation(logger logr.Logger, annotationKey 
 	if value, ok := pool.Annotations[annotationKey]; ok {
 		return value, true
 	}
-	logger.Info("Annotation '%s' not found on pool '%s'\n", ObjectApiVersionKey, pool.Name)
+	logger.Info(fmt.Sprintf("Annotation '%s' not found on pool '%s'", ObjectApiVersionKey, pool.Name))
 	return "", false
 }
