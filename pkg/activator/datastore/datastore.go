@@ -21,6 +21,7 @@ import (
 	"errors"
 	"reflect"
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -44,6 +45,9 @@ type Datastore interface {
 	PoolHasSynced() bool
 	PoolLabelsMatch(podLabels map[string]string) bool
 
+	PoolGetRequestTime() time.Time
+	PoolSetRequestTime(t time.Time)
+
 	// Clears the store state, happens when the pool gets deleted.
 	Clear()
 }
@@ -62,6 +66,7 @@ type datastore struct {
 	// poolAndObjectivesMu is used to synchronize access to pool and the objectives map.
 	poolAndObjectivesMu sync.RWMutex
 	pool                *v1.InferencePool
+	poolLastRequestTime time.Time
 }
 
 func (ds *datastore) Clear() {
@@ -139,4 +144,16 @@ func stripLabelKeyAliasFromLabelMap(labels map[v1.LabelKey]v1.LabelValue) map[st
 		outMap[string(k)] = string(v)
 	}
 	return outMap
+}
+
+func (ds *datastore) PoolGetRequestTime() time.Time {
+	ds.poolAndObjectivesMu.RLock()
+	defer ds.poolAndObjectivesMu.RUnlock()
+	return ds.poolLastRequestTime
+}
+
+func (ds *datastore) PoolSetRequestTime(t time.Time) {
+	ds.poolAndObjectivesMu.RLock()
+	defer ds.poolAndObjectivesMu.RUnlock()
+	ds.poolLastRequestTime = t
 }

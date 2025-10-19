@@ -20,6 +20,7 @@ package requestcontrol
 
 import (
 	"context"
+	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -32,11 +33,13 @@ import (
 // Datastore defines the interface required by the Director.
 type Datastore interface {
 	PoolGet() (*v1.InferencePool, error)
+	PoolGetRequestTime() time.Time
+	PoolSetRequestTime(t time.Time)
 }
 
 // NewDirectorWithConfig creates a new Director instance with all dependencies.
 func NewDirectorWithConfig(datastore Datastore) *Director {
-	activator, _ := newActivator()
+	activator, _ := newActivator(&datastore)
 	return &Director{
 		datastore:       datastore,
 		defaultPriority: 0, // define default priority explicitly
@@ -75,23 +78,13 @@ func (d *Director) HandleRequest(ctx context.Context, reqCtx *handlers.RequestCo
 
 	logger.V(logutil.VERBOSE).Info("Incoming Request info", "objectiveKey", reqCtx.ObjectiveKey, "incomingModelName", reqCtx.IncomingModelName, "targetModelName", reqCtx.TargetModelName)
 
-	// Get InferencePool Info
-	pool, err := d.datastore.PoolGet()
-	if err != nil {
-		return reqCtx, err
-	}
-
-	logger.V(logutil.VERBOSE).Info("InferencePool found", "name", pool.Name, "namespace", pool.Namespace)
-
-	if ready := d.activator.InferencePoolReady(ctx, pool); !ready {
+	if ready := d.activator.InferencePoolReady(ctx); !ready {
 		return reqCtx, errutil.Error{Code: errutil.ServiceUnavailable, Msg: "failed to find active candidate pods in the inferencePool for serving the request"}
 	}
 
-	// TODO:
-	//    1. Extend Datastore to keep track of the timestamp when an inferencePool receives a request
-	//       - This value will be used to later scale down the deployment associated with an inferencePool if no requests are received after x seconds
-	//    2. Add a client responsible to scale down an inferencePool if it does not receive any request after x seconds
-	//    3. Add a queue to store pending requests - global queue or a local queue?
+	// Record the timestamp when an inferencePool receives a request
+	d.datastore.PoolSetRequestTime(time.Now())
+
 	return reqCtx, nil
 }
 

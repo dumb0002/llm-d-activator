@@ -31,6 +31,7 @@ const (
 	ObjectkindKey               = "activator.llm-d.ai/target-kind"
 	ObjectNameKey               = "activator.llm-d.ai/target-name"
 	ScaleFromZeroGracePeriodKey = "activator.llm-d.ai/scale-from-zero-grace-period" // Optional annotation
+	ScaleDownDelayKey           = "activator.llm-d.ai/scale-down-delay"             // Optional annotation
 )
 
 type ScaledObjectData struct {
@@ -41,15 +42,25 @@ type ScaledObjectData struct {
 }
 
 type activator struct {
-	DynamicClient                   *dynamic.DynamicClient
-	ScaleClient                     scale.ScalesGetter
-	Mapper                          meta.RESTMapper
-	DefaultScaleToZeroGracePeriod   time.Duration
+	DynamicClient *dynamic.DynamicClient
+	ScaleClient   scale.ScalesGetter
+	Mapper        meta.RESTMapper
+	Datastore     *Datastore
+
+	// DefaultScaleToZeroGracePeriod is the time we will wait for a scale-to-zero decision to complete
+	DefaultScaleToZeroGracePeriod time.Duration
+
+	// DefaultScaleFromZeroGracePeriod is the time we will wait for a scale-from-zero decision to complete
 	DefaultScaleFromZeroGracePeriod time.Duration
-	DefaultScaleDownDelay           time.Duration
+
+	// DefaultScaleDownDelay is the amount of time that must pass before a scale-down decision is applied
+	DefaultScaleDownDelay time.Duration
+
+	// ScaleToZeroRequestRetentionPeriod it is the amount of time we will wait before releasing the request after a scale from zero event
+	ScaleToZeroRequestRetentionPeriod time.Duration
 }
 
-func newActivator() (*activator, error) {
+func newActivator(datastore *Datastore) (*activator, error) {
 	config, err := getKubeConfig()
 
 	if err != nil {
@@ -67,16 +78,26 @@ func newActivator() (*activator, error) {
 	}
 
 	return &activator{
-		DynamicClient:                   dynamicClient,
-		Mapper:                          mapper,
-		ScaleClient:                     scaleClient,
-		DefaultScaleToZeroGracePeriod:   60 * time.Second,
-		DefaultScaleFromZeroGracePeriod: 60 * time.Second,
-		DefaultScaleDownDelay:           300 * time.Second}, nil
+		DynamicClient:                     dynamicClient,
+		Mapper:                            mapper,
+		Datastore:                         datastore,
+		ScaleClient:                       scaleClient,
+		DefaultScaleToZeroGracePeriod:     60 * time.Second,
+		DefaultScaleFromZeroGracePeriod:   60 * time.Second,
+		DefaultScaleDownDelay:             20 * time.Second,
+		ScaleToZeroRequestRetentionPeriod: 5 * time.Second}, nil
 }
 
-func (a *activator) InferencePoolReady(ctx context.Context, pool *v1.InferencePool) bool {
+func (a *activator) InferencePoolReady(ctx context.Context) bool {
 	logger := log.FromContext(ctx)
+	ds := *(a.Datastore)
+
+	// Get InferencePool Info
+	pool, err := ds.PoolGet()
+	if err != nil {
+		return false
+	}
+
 	namespace := pool.Namespace
 	logger.V(logutil.TRACE).Info("InferencePool found", "name", pool.Name, "namespace", namespace)
 
@@ -118,7 +139,14 @@ func (a *activator) InferencePoolReady(ctx context.Context, pool *v1.InferencePo
 	// Scale inferencePool workload from zero to one replicas
 	numReplicas := int32(1)
 	scaleData := ScaledObjectData{name: pool.Annotations[ObjectNameKey], scaleGracePeriod: a.DefaultScaleFromZeroGracePeriod, numReplicas: numReplicas, scaleObject: scaleObject}
-	return a.ScaleInferencePool(ctx, logger, namespace, scaleData, gr, gvr)
+
+	// Start ticker or go routine because we scale a inferencePool from zero to one
+	if a.ScaleInferencePool(ctx, logger, namespace, scaleData, gr, gvr) {
+		logger.Info("Start Monitoring InferencePool Idleness")
+		go a.MonitorInferencePoolIdleness(pool, scaleData, gr, gvr)
+		return true
+	}
+	return false
 }
 
 func (a *activator) InferencePoolPodsReady(ctx context.Context, logger logr.Logger, namespace, objname string, numReplicas int32, scaleGracePeriod int, gr schema.GroupResource, gvr types.GroupVersionResource) bool {
@@ -135,7 +163,8 @@ func (a *activator) InferencePoolPodsReady(ctx context.Context, logger logr.Logg
 			continue
 		} else {
 			if numReplicas == int32(readyReplicas) {
-				logger.Info("Candidate pods are READY")
+				logger.Info(fmt.Sprintf("Candidate pods are READY - waiting ScaleToZeroRequestRetentionPeriod of '%s' before releasing the request", a.ScaleToZeroRequestRetentionPeriod))
+				time.Sleep(a.ScaleToZeroRequestRetentionPeriod)
 				return true
 			} else {
 				logger.Info("Candidate pods are NOT READY")
@@ -161,6 +190,11 @@ func (a *activator) ScaleInferencePool(ctx context.Context, logger logr.Logger, 
 		return false
 	}
 	logger.V(logutil.VERBOSE).Info(fmt.Sprintf("Scale Object %s in namespace %s scaled up to %d replicas with scale grace period %d \n", objData.name, namespace, objData.numReplicas, int(objData.scaleGracePeriod)))
+
+	if objData.numReplicas == 0 {
+		time.Sleep(objData.scaleGracePeriod)
+		return true
+	}
 
 	return a.InferencePoolPodsReady(ctx, logger, namespace, objData.name, objData.numReplicas, int(objData.scaleGracePeriod), gr, gvr)
 }
@@ -215,4 +249,45 @@ func (a *activator) getOptionalPoolAnnotation(logger logr.Logger, annotationKey 
 	}
 	logger.Info(fmt.Sprintf("Annotation '%s' not found on pool '%s'", ObjectApiVersionKey, pool.Name))
 	return "", false
+}
+
+func (a *activator) MonitorInferencePoolIdleness(pool *v1.InferencePool, objData ScaledObjectData, gr schema.GroupResource, gvr types.GroupVersionResource) {
+	// Create a context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // Ensure cancel is called when main exits
+
+	logger := log.FromContext(ctx)
+
+	ds := *(a.Datastore)
+	objData.numReplicas = 0
+	objData.scaleGracePeriod = a.DefaultScaleToZeroGracePeriod
+	scaleDownDelay := a.DefaultScaleDownDelay
+
+	ticker := time.NewTicker(time.Second * 30)
+	defer ticker.Stop() // Ensure the ticker is stopped when the function exits
+
+	for range ticker.C {
+		logger.Info(fmt.Sprintf("Activator Time check for inferencePool idleness: %s", time.Now().Format("15:04:05")))
+
+		reqRecordTime := ds.PoolGetRequestTime()
+		if time.Since(reqRecordTime) > scaleDownDelay {
+
+			scaleObject, err := a.ScaleClient.Scales(pool.Namespace).Get(ctx, gr, pool.Annotations[ObjectNameKey], metav1.GetOptions{})
+			if err != nil {
+				logger.Error(err, "Error getting scale subresource object")
+			}
+			objData.scaleObject = scaleObject
+
+			// Scale inferencePool to zero replicas
+			success := a.ScaleInferencePool(ctx, logger, pool.Namespace, objData, gr, gvr)
+			if success {
+				logger.Info(fmt.Sprintf("InferencePool '%s' was sucessfully scale down to zero replicas", pool.Name))
+				//ticker.Stop()
+				return
+			} else {
+				logger.Info(fmt.Sprintf("InferencePool '%s' was not sucessfully scale down to zero replicas", pool.Name))
+			}
+		}
+
+	}
 }
