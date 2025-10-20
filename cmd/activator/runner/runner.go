@@ -40,8 +40,9 @@ import (
 	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/datastore"
 	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/requestcontrol"
 	runserver "github.com/llm-d-incubation/llm-d-activator/pkg/activator/server"
-	"github.com/llm-d-incubation/llm-d-activator/pkg/common"
 	"github.com/llm-d-incubation/llm-d-activator/version"
+
+	"sigs.k8s.io/gateway-api-inference-extension/pkg/common"
 	"sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/logging"
 )
 
@@ -96,6 +97,13 @@ func Run(ctx context.Context) error {
 	// --- Setup Datastore ---
 	datastore := datastore.NewDatastore(ctx)
 
+	// --- Setup Activator ---
+	activator, err := requestcontrol.NewActivatorWithConfig(cfg)
+	if err != nil {
+		setupLog.Error(err, "Failed to setup Activator")
+		return err
+	}
+
 	// --- Setup Metrics Server ---
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:    fmt.Sprintf(":%d", *metricsPort),
@@ -148,7 +156,7 @@ func Run(ctx context.Context) error {
 	}
 
 	// --- Initialize Core EPP Components ---
-	director := requestcontrol.NewDirectorWithConfig(datastore)
+	director := requestcontrol.NewDirectorWithConfig(datastore, activator)
 
 	// --- Setup ExtProc Server Runner ---
 	serverRunner := &runserver.ExtProcServerRunner{

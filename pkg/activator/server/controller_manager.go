@@ -31,9 +31,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/llm-d-incubation/llm-d-activator/pkg/common"
 	v1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	"sigs.k8s.io/gateway-api-inference-extension/apix/v1alpha2"
+	"sigs.k8s.io/gateway-api-inference-extension/pkg/common"
 )
 
 var scheme = runtime.NewScheme()

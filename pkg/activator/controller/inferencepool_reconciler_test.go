@@ -32,9 +32,10 @@ import (
 
 	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/datastore"
 	utiltest "github.com/llm-d-incubation/llm-d-activator/pkg/activator/util/testing"
-	"github.com/llm-d-incubation/llm-d-activator/pkg/common"
+
 	v1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	"sigs.k8s.io/gateway-api-inference-extension/apix/v1alpha2"
+	"sigs.k8s.io/gateway-api-inference-extension/pkg/common"
 )
 
 var (

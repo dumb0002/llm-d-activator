@@ -23,7 +23,6 @@ import (
 	"k8s.io/client-go/discovery"
 	cached "k8s.io/client-go/discovery/cached"
 	"k8s.io/client-go/scale"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 const (
@@ -40,7 +39,7 @@ type ScaledObjectData struct {
 	scaleObject      *autoscaling.Scale
 }
 
-type activator struct {
+type Activator struct {
 	DynamicClient *dynamic.DynamicClient
 	ScaleClient   scale.ScalesGetter
 	Mapper        meta.RESTMapper
@@ -58,13 +57,7 @@ type activator struct {
 	ScaleToZeroRequestRetentionPeriod time.Duration
 }
 
-func newActivator() (*activator, error) {
-	config, err := getKubeConfig()
-
-	if err != nil {
-		return nil, err
-	}
-
+func NewActivatorWithConfig(config *rest.Config) (*Activator, error) {
 	scaleClient, mapper, err := InitScaleClient(config)
 	if err != nil {
 		return nil, err
@@ -75,7 +68,7 @@ func newActivator() (*activator, error) {
 		return nil, err
 	}
 
-	return &activator{
+	return &Activator{
 		DynamicClient:                     dynamicClient,
 		Mapper:                            mapper,
 		ScaleClient:                       scaleClient,
@@ -85,7 +78,7 @@ func newActivator() (*activator, error) {
 		ScaleToZeroRequestRetentionPeriod: 5 * time.Second}, nil
 }
 
-func (a *activator) InferencePoolReady(ctx context.Context, pool *v1.InferencePool) bool {
+func (a *Activator) InferencePoolReady(ctx context.Context, pool *v1.InferencePool) bool {
 	logger := log.FromContext(ctx)
 	namespace := pool.Namespace
 	logger.V(logutil.TRACE).Info("InferencePool found", "name", pool.Name, "namespace", namespace)
@@ -104,7 +97,7 @@ func (a *activator) InferencePoolReady(ctx context.Context, pool *v1.InferencePo
 		scaleGracePeriod = int(a.DefaultScaleFromZeroGracePeriod)
 	}
 
-	gvr, err := types.ParseGVR(a.Mapper, pool.Annotations[ObjectApiVersionKey], pool.Annotations[ObjectkindKey])
+	gvr, err := types.GetResourceForKind(a.Mapper, pool.Annotations[ObjectApiVersionKey], pool.Annotations[ObjectkindKey])
 	if err != nil {
 		msg := "Failed to parse Group, Version, Kind, Resource"
 		logger.Error(err, msg, "apiVersion", pool.Annotations[ObjectApiVersionKey], "kind", pool.Annotations[ObjectkindKey])
@@ -131,11 +124,11 @@ func (a *activator) InferencePoolReady(ctx context.Context, pool *v1.InferencePo
 	return a.ScaleInferencePool(ctx, logger, namespace, scaleData, gr, gvr)
 }
 
-func (a *activator) InferencePoolPodsReady(ctx context.Context, logger logr.Logger, namespace, objname string, numReplicas int32, scaleGracePeriod int, gr schema.GroupResource, gvr types.GroupVersionResource) bool {
+func (a *Activator) InferencePoolPodsReady(ctx context.Context, logger logr.Logger, namespace, objname string, numReplicas int32, scaleGracePeriod int, gr schema.GroupResource, gvr schema.GroupVersionResource) bool {
 	// Check if Scale Object for target inferencePool is Ready
 	count := 0
 	for {
-		unstructuredObj, err := a.DynamicClient.Resource(gvr.GroupVersionResource()).Namespace(namespace).Get(ctx, objname, metav1.GetOptions{})
+		unstructuredObj, err := a.DynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, objname, metav1.GetOptions{})
 		if err != nil {
 			logger.Error(err, "Error getting unstructured object")
 		}
@@ -161,7 +154,7 @@ func (a *activator) InferencePoolPodsReady(ctx context.Context, logger logr.Logg
 	}
 }
 
-func (a *activator) ScaleInferencePool(ctx context.Context, logger logr.Logger, namespace string, objData ScaledObjectData, gr schema.GroupResource, gvr types.GroupVersionResource) bool {
+func (a *Activator) ScaleInferencePool(ctx context.Context, logger logr.Logger, namespace string, objData ScaledObjectData, gr schema.GroupResource, gvr schema.GroupVersionResource) bool {
 	// Modify the desired replicas
 	objData.scaleObject.Spec.Replicas = objData.numReplicas
 
@@ -174,18 +167,6 @@ func (a *activator) ScaleInferencePool(ctx context.Context, logger logr.Logger, 
 	logger.V(logutil.VERBOSE).Info(fmt.Sprintf("Scale Object %s in namespace %s scaled up to %d replicas with scale grace period %d \n", objData.name, namespace, objData.numReplicas, int(objData.scaleGracePeriod)))
 
 	return a.InferencePoolPodsReady(ctx, logger, namespace, objData.name, objData.numReplicas, int(objData.scaleGracePeriod), gr, gvr)
-}
-
-func getKubeConfig() (*rest.Config, error) {
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		kubeconfigPath := clientcmd.RecommendedHomeFile
-		config, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return config, err
 }
 
 func InitScaleClient(config *rest.Config) (scale.ScalesGetter, meta.RESTMapper, error) {
@@ -204,7 +185,7 @@ func InitScaleClient(config *rest.Config) (scale.ScalesGetter, meta.RESTMapper, 
 	), restMapper, nil
 }
 
-func (a *activator) verifyPoolObjectAnnotations(logger logr.Logger, pool *v1.InferencePool) bool {
+func (a *Activator) verifyPoolObjectAnnotations(logger logr.Logger, pool *v1.InferencePool) bool {
 	if _, ok := pool.Annotations[ObjectApiVersionKey]; !ok {
 		logger.Info(fmt.Sprintf("Annotation '%s' not found on pool '%s'", ObjectApiVersionKey, pool.Name))
 		return false
@@ -220,7 +201,7 @@ func (a *activator) verifyPoolObjectAnnotations(logger logr.Logger, pool *v1.Inf
 	return true
 }
 
-func (a *activator) getOptionalPoolAnnotation(logger logr.Logger, annotationKey string, pool *v1.InferencePool) (string, bool) {
+func (a *Activator) getOptionalPoolAnnotation(logger logr.Logger, annotationKey string, pool *v1.InferencePool) (string, bool) {
 	if value, ok := pool.Annotations[annotationKey]; ok {
 		return value, true
 	}
