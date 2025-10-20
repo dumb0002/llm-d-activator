@@ -41,12 +41,21 @@ type ScaledObjectData struct {
 }
 
 type activator struct {
-	DynamicClient                   *dynamic.DynamicClient
-	ScaleClient                     scale.ScalesGetter
-	Mapper                          meta.RESTMapper
-	DefaultScaleToZeroGracePeriod   time.Duration
+	DynamicClient *dynamic.DynamicClient
+	ScaleClient   scale.ScalesGetter
+	Mapper        meta.RESTMapper
+
+	// DefaultScaleToZeroGracePeriod is the time we will wait for a scale-to-zero decision to complete
+	DefaultScaleToZeroGracePeriod time.Duration
+
+	// DefaultScaleFromZeroGracePeriod is the time we will wait for a scale-from-zero decision to complete
 	DefaultScaleFromZeroGracePeriod time.Duration
-	DefaultScaleDownDelay           time.Duration
+
+	// DefaultScaleDownDelay is the amount of time that must pass before a scale-down decision is applied
+	DefaultScaleDownDelay time.Duration
+
+	// ScaleToZeroRequestRetentionPeriod it is the amount of time we will wait before releasing the request after a scale from zero event
+	ScaleToZeroRequestRetentionPeriod time.Duration
 }
 
 func newActivator() (*activator, error) {
@@ -67,12 +76,13 @@ func newActivator() (*activator, error) {
 	}
 
 	return &activator{
-		DynamicClient:                   dynamicClient,
-		Mapper:                          mapper,
-		ScaleClient:                     scaleClient,
-		DefaultScaleToZeroGracePeriod:   60 * time.Second,
-		DefaultScaleFromZeroGracePeriod: 60 * time.Second,
-		DefaultScaleDownDelay:           300 * time.Second}, nil
+		DynamicClient:                     dynamicClient,
+		Mapper:                            mapper,
+		ScaleClient:                       scaleClient,
+		DefaultScaleToZeroGracePeriod:     60 * time.Second,
+		DefaultScaleFromZeroGracePeriod:   60 * time.Second,
+		DefaultScaleDownDelay:             300 * time.Second,
+		ScaleToZeroRequestRetentionPeriod: 5 * time.Second}, nil
 }
 
 func (a *activator) InferencePoolReady(ctx context.Context, pool *v1.InferencePool) bool {
@@ -135,7 +145,8 @@ func (a *activator) InferencePoolPodsReady(ctx context.Context, logger logr.Logg
 			continue
 		} else {
 			if numReplicas == int32(readyReplicas) {
-				logger.Info("Candidate pods are READY")
+				logger.Info(fmt.Sprintf("Candidate pods are READY - waiting ScaleToZeroRequestRetentionPeriod of '%s' before releasing the request", a.ScaleToZeroRequestRetentionPeriod))
+				time.Sleep(a.ScaleToZeroRequestRetentionPeriod)
 				return true
 			} else {
 				logger.Info("Candidate pods are NOT READY")
