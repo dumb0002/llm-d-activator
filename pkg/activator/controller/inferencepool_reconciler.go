@@ -93,9 +93,7 @@ func (c *InferencePoolReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, fmt.Errorf("unsupported API group: %s", c.PoolGKNN.Group)
 	}
 
-	if err := c.Datastore.PoolSet(ctx, v1infPool); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to update datastore - %w", err)
-	}
+	c.Datastore.PoolSet(v1infPool)
 
 	return ctrl.Result{}, nil
 }
