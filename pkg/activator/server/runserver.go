@@ -53,7 +53,7 @@ type ExtProcServerRunner struct {
 	CertPath                         string
 	RefreshPrometheusMetricsInterval time.Duration
 	MetricsStalenessThreshold        time.Duration
-	Director                         *requestcontrol.Director
+	Activator                        *requestcontrol.Activator
 }
 
 // Default values for CLI flags in main
@@ -137,7 +137,7 @@ func (r *ExtProcServerRunner) AsRunnable(logger logr.Logger) manager.Runnable {
 			srv = grpc.NewServer()
 		}
 
-		extProcServer := handlers.NewStreamingServer(r.Datastore, r.Director)
+		extProcServer := handlers.NewStreamingServer(r.Datastore, r.Activator)
 		extProcPb.RegisterExternalProcessorServer(srv, extProcServer)
 
 		if r.HealthChecking {

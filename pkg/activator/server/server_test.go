@@ -27,13 +27,13 @@ import (
 
 	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/handlers"
 	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/metadata"
-	testutil "github.com/llm-d-incubation/llm-d-activator/pkg/activator/util/testing"
 	"sigs.k8s.io/gateway-api-inference-extension/apix/v1alpha2"
 	"sigs.k8s.io/gateway-api-inference-extension/test/utils"
+
+	testutil "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/testing"
 )
 
 const (
-	bufSize    = 1024 * 1024
 	podName    = "pod1"
 	podAddress = "1.2.3.4"
 	poolPort   = int32(5678)
@@ -44,21 +44,20 @@ func TestServer(t *testing.T) {
 	expectedRequestHeaders := map[string]string{metadata.DestinationEndpointKey: fmt.Sprintf("%s:%d", podAddress, poolPort),
 		"Content-Length": "42", ":method": "POST", "x-test": "body", "x-request-id": "test-request-id"}
 	expectedResponseHeaders := map[string]string{"x-went-into-resp-headers": "true", ":method": "POST", "x-test": "body"}
-	expectedSchedulerHeaders := map[string]string{":method": "POST", "x-test": "body", "x-request-id": "test-request-id"}
 
 	t.Run("server", func(t *testing.T) {
 		model := testutil.MakeInferenceObjective("v1").
 			CreationTimestamp(metav1.Unix(1000, 0)).ObjRef()
 
-		director := &testDirector{}
+		activator := &testActivator{}
 		ctx, cancel, ds, _ := utils.PrepareForTestStreamingServer([]*v1alpha2.InferenceObjective{model},
 			[]*v1.Pod{{ObjectMeta: metav1.ObjectMeta{Name: podName}}}, "test-pool1", namespace, poolPort)
 
-		streamingServer := handlers.NewStreamingServer(ds, director)
+		streamingServer := handlers.NewStreamingServer(ds, activator)
 
 		testListener, errChan := utils.SetupTestStreamingServer(t, ctx, ds, streamingServer)
 		process, conn := utils.GetStreamingServerClient(ctx, t)
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck
 
 		// Send request headers - no response expected
 		headers := utils.BuildEnvoyGRPCHeaders(map[string]string{
@@ -126,16 +125,6 @@ func TestServer(t *testing.T) {
 			}
 		}
 
-		// Check headers passed to the scheduler
-		for expectedKey, expectedValue := range expectedSchedulerHeaders {
-			got, ok := director.requestHeaders[expectedKey]
-			if !ok {
-				t.Errorf("Missing header %s", expectedKey)
-			} else if got != expectedValue {
-				t.Errorf("Incorrect value for header %s, want %s got %s", expectedKey, expectedValue, got)
-			}
-		}
-
 		// Send response headers
 		headers = utils.BuildEnvoyGRPCHeaders(map[string]string{"x-test": "body", ":method": "POST"}, false)
 		request = &pb.ProcessingRequest{
@@ -164,22 +153,13 @@ func TestServer(t *testing.T) {
 
 		cancel()
 		<-errChan
-		testListener.Close()
+		testListener.Close() //nolint:errcheck
 	})
 }
 
-type testDirector struct {
-	requestHeaders map[string]string
+type testActivator struct {
 }
 
-func (ts *testDirector) HandleRequest(ctx context.Context, reqCtx *handlers.RequestContext) (*handlers.RequestContext, error) {
-	ts.requestHeaders = reqCtx.Request.Headers
-
-	reqCtx.Request.Body["model"] = "v1"
-	reqCtx.TargetEndpoint = fmt.Sprintf("%s:%d", podAddress, poolPort)
-	return reqCtx, nil
-}
-
-func (ts *testDirector) HandleResponse(ctx context.Context, reqCtx *handlers.RequestContext) (*handlers.RequestContext, error) {
-	return reqCtx, nil
+func (ts *testActivator) MayActivate(ctx context.Context) error {
+	return nil
 }

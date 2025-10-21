@@ -36,14 +36,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"sigs.k8s.io/gateway-api-inference-extension/pkg/common"
+	"sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/logging"
+	"sigs.k8s.io/gateway-api-inference-extension/version"
+
 	"github.com/llm-d-incubation/llm-d-activator/internal/runnable"
 	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/datastore"
 	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/requestcontrol"
 	runserver "github.com/llm-d-incubation/llm-d-activator/pkg/activator/server"
-	"github.com/llm-d-incubation/llm-d-activator/version"
-
-	"sigs.k8s.io/gateway-api-inference-extension/pkg/common"
-	"sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/logging"
 )
 
 var (
@@ -98,7 +98,7 @@ func Run(ctx context.Context) error {
 	datastore := datastore.NewDatastore(ctx)
 
 	// --- Setup Activator ---
-	activator, err := requestcontrol.NewActivatorWithConfig(cfg)
+	activator, err := requestcontrol.NewActivatorWithConfig(cfg, datastore)
 	if err != nil {
 		setupLog.Error(err, "Failed to setup Activator")
 		return err
@@ -155,9 +155,6 @@ func Run(ctx context.Context) error {
 		isLeader.Store(true)
 	}
 
-	// --- Initialize Core EPP Components ---
-	director := requestcontrol.NewDirectorWithConfig(datastore, activator)
-
 	// --- Setup ExtProc Server Runner ---
 	serverRunner := &runserver.ExtProcServerRunner{
 		GrpcPort:           *grpcPort,
@@ -167,7 +164,7 @@ func Run(ctx context.Context) error {
 		SecureServing:      *secureServing,
 		HealthChecking:     *healthChecking,
 		CertPath:           *certPath,
-		Director:           director,
+		Activator:          activator,
 	}
 	if err := serverRunner.SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "Failed to setup Activator controllers")
