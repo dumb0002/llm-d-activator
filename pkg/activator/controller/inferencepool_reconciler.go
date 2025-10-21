@@ -26,9 +26,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/datastore"
-	"github.com/llm-d-incubation/llm-d-activator/pkg/common"
 	v1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	"sigs.k8s.io/gateway-api-inference-extension/apix/v1alpha2"
+	"sigs.k8s.io/gateway-api-inference-extension/pkg/common"
 	logutil "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/logging"
 )
 
@@ -93,9 +93,7 @@ func (c *InferencePoolReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, fmt.Errorf("unsupported API group: %s", c.PoolGKNN.Group)
 	}
 
-	if err := c.Datastore.PoolSet(ctx, v1infPool); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to update datastore - %w", err)
-	}
+	c.Datastore.PoolSet(v1infPool)
 
 	return ctrl.Result{}, nil
 }

@@ -21,61 +21,19 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-const (
-	defaultVersion  = "v1"
-	defaultGroup    = "apps"
-	defaultKind     = "Deployment"
-	defaultResource = "deployments"
-)
-
-// ParseGVKR returns GroupVersionKindResource for specified apiVersion (groupVersion) and Kind
-func ParseGVR(restMapper meta.RESTMapper, apiVersion string, kind string) (GroupVersionResource, error) {
-	var group, version, resource string
-
-	// if apiVersion is not specified, we suppose the default one should be used
-	if apiVersion == "" {
-		group = defaultGroup
-		version = defaultVersion
-	} else {
-		groupVersion, err := schema.ParseGroupVersion(apiVersion)
-		if err != nil {
-			return GroupVersionResource{}, err
-		}
-
-		group = groupVersion.Group
-		version = groupVersion.Version
-	}
-
-	// if kind is not specified, we suppose that default one should be used
-	if kind == "" {
-		kind = defaultKind
-	}
-
-	// get resource
-	resource, err := getResource(restMapper, group, version, kind)
+// GetResourceForKind returns GroupVersionResource for specified apiVersion (groupVersion) and Kind
+func GetResourceForKind(mapper meta.RESTMapper, apiVersion string, kind string) (schema.GroupVersionResource, error) {
+	gv, err := schema.ParseGroupVersion(apiVersion)
 	if err != nil {
-		return GroupVersionResource{}, err
+		return schema.GroupVersionResource{}, err
 	}
 
-	return GroupVersionResource{
-		Group:    group,
-		Version:  version,
-		Resource: resource,
-	}, nil
-}
-
-func getResource(restMapper meta.RESTMapper, group string, version string, kind string) (string, error) {
-	switch kind {
-	case defaultKind:
-		return defaultResource, nil
-	case "StatefulSet":
-		return "statefulsets", nil
-	default:
-		restmapping, err := restMapper.RESTMapping(schema.GroupKind{Group: group, Kind: kind}, version)
-		if err == nil {
-			return restmapping.Resource.GroupResource().Resource, nil
-		}
-
-		return "", err
+	// Get the REST mapping for the GroupKind
+	gk := schema.GroupKind{Group: gv.Group, Kind: kind}
+	mapping, err := mapper.RESTMapping(gk, gv.Version)
+	if err != nil {
+		return schema.GroupVersionResource{}, err
 	}
+
+	return mapping.Resource, nil
 }

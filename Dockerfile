@@ -21,10 +21,8 @@ RUN go mod download
 
 # Sources
 COPY cmd/activator ./cmd/activator
-COPY pkg/common ./pkg/common
 COPY pkg/activator ./pkg/activator
 COPY internal ./internal
-COPY apix ./apix
 COPY api ./api
 COPY version ./version
 WORKDIR /src/cmd/activator

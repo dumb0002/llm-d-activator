@@ -35,8 +35,8 @@ type Datastore interface {
 }
 
 // NewDirectorWithConfig creates a new Director instance with all dependencies.
-func NewDirectorWithConfig(datastore Datastore) *Director {
-	activator, _ := newActivator()
+func NewDirectorWithConfig(datastore Datastore, activator *Activator) *Director {
+
 	return &Director{
 		datastore:       datastore,
 		defaultPriority: 0, // define default priority explicitly
@@ -51,7 +51,7 @@ type Director struct {
 	// no need to set this in the constructor, since the value we want is the default int val
 	// and value types cannot be nil
 	defaultPriority int
-	activator       *activator
+	activator       *Activator
 }
 
 // HandleRequest orchestrates the request lifecycle.

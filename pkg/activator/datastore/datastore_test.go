@@ -35,29 +35,23 @@ func TestPool(t *testing.T) {
 		Namespace("default").
 		Selector(pool1Selector).ObjRef()
 	tests := []struct {
-		name            string
-		inferencePool   *v1.InferencePool
-		labels          map[string]string
-		wantSynced      bool
-		wantPool        *v1.InferencePool
-		wantErr         error
-		wantLabelsMatch bool
+		name          string
+		inferencePool *v1.InferencePool
+		wantSynced    bool
+		wantPool      *v1.InferencePool
+		wantErr       error
 	}{
 		{
-			name:            "Ready when InferencePool exists in data store",
-			inferencePool:   pool1,
-			labels:          pool1Selector,
-			wantSynced:      true,
-			wantPool:        pool1,
-			wantLabelsMatch: true,
+			name:          "Ready when InferencePool exists in data store",
+			inferencePool: pool1,
+			wantSynced:    true,
+			wantPool:      pool1,
 		},
 		{
-			name:            "Labels not matched",
-			inferencePool:   pool1,
-			labels:          map[string]string{"app": "vllm_v2"},
-			wantSynced:      true,
-			wantPool:        pool1,
-			wantLabelsMatch: false,
+			name:          "Labels not matched",
+			inferencePool: pool1,
+			wantSynced:    true,
+			wantPool:      pool1,
 		},
 		{
 			name:       "Not ready when InferencePool is nil in data store",
@@ -72,7 +66,7 @@ func TestPool(t *testing.T) {
 			_ = clientgoscheme.AddToScheme(scheme)
 
 			datastore := NewDatastore(context.Background())
-			_ = datastore.PoolSet(context.Background(), tt.inferencePool)
+			datastore.PoolSet(tt.inferencePool)
 			gotPool, gotErr := datastore.PoolGet()
 			if diff := cmp.Diff(tt.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error diff (+got/-want): %s", diff)
@@ -83,12 +77,6 @@ func TestPool(t *testing.T) {
 			gotSynced := datastore.PoolHasSynced()
 			if diff := cmp.Diff(tt.wantSynced, gotSynced); diff != "" {
 				t.Errorf("Unexpected synced diff (+got/-want): %s", diff)
-			}
-			if tt.labels != nil {
-				gotLabelsMatch := datastore.PoolLabelsMatch(tt.labels)
-				if diff := cmp.Diff(tt.wantLabelsMatch, gotLabelsMatch); diff != "" {
-					t.Errorf("Unexpected labels match diff (+got/-want): %s", diff)
-				}
 			}
 		})
 	}
