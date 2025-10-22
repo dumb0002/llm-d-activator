@@ -31,6 +31,16 @@ import (
 	logutil "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/logging"
 )
 
+var continueHeadersResponse = &extProcPb.ProcessingResponse{
+	Response: &extProcPb.ProcessingResponse_RequestHeaders{
+		RequestHeaders: &extProcPb.HeadersResponse{
+			Response: &extProcPb.CommonResponse{
+				Status: extProcPb.CommonResponse_CONTINUE,
+			},
+		},
+	},
+}
+
 func NewStreamingServer(datastore Datastore, activator Activator) *StreamingServer {
 	return &StreamingServer{
 		activator: activator,
@@ -77,7 +87,30 @@ func (s *StreamingServer) Process(srv extProcPb.ExternalProcessor_ProcessServer)
 
 		switch req.Request.(type) {
 		case *extProcPb.ProcessingRequest_RequestHeaders:
-			err = s.activator.MayActivate(ctx)
+
+			if err := s.activator.MayActivate(ctx); err != nil {
+				if logger.V(logutil.DEBUG).Enabled() {
+					logger.V(logutil.DEBUG).Error(err, "Failed to process request", "request", req)
+				} else {
+					logger.V(logutil.DEFAULT).Error(err, "Failed to process request")
+				}
+				resp, err := buildErrResponse(err)
+				if err != nil {
+					return err
+				}
+				if err := srv.Send(resp); err != nil {
+					logger.V(logutil.DEFAULT).Error(err, "Send failed")
+					return status.Errorf(codes.Unknown, "failed to send response back to Envoy: %v", err)
+				}
+				return nil
+			}
+
+			loggerTrace.Info("Sending request header response")
+			if err := srv.Send(continueHeadersResponse); err != nil {
+				logger.V(logutil.DEFAULT).Error(err, "error sending response")
+				return status.Errorf(codes.Unknown, "failed to send response back to Envoy: %v", err)
+			}
+
 		case *extProcPb.ProcessingRequest_RequestBody:
 			logger.V(logutil.DEBUG).Info("Error: ProcessingRequest_RequestBody received")
 		case *extProcPb.ProcessingRequest_RequestTrailers:
@@ -90,23 +123,6 @@ func (s *StreamingServer) Process(srv extProcPb.ExternalProcessor_ProcessServer)
 			logger.V(logutil.DEBUG).Info("Error: ProcessingRequest_ResponseTrailers received")
 		}
 
-		// Handle the err and fire an immediate response.
-		if err != nil {
-			if logger.V(logutil.DEBUG).Enabled() {
-				logger.V(logutil.DEBUG).Error(err, "Failed to process request", "request", req)
-			} else {
-				logger.V(logutil.DEFAULT).Error(err, "Failed to process request")
-			}
-			resp, err := buildErrResponse(err)
-			if err != nil {
-				return err
-			}
-			if err := srv.Send(resp); err != nil {
-				logger.V(logutil.DEFAULT).Error(err, "Send failed")
-				return status.Errorf(codes.Unknown, "failed to send response back to Envoy: %v", err)
-			}
-			return nil
-		}
 	}
 }
 
