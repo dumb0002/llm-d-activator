@@ -58,6 +58,13 @@ rules: # TODO: These can probably be trimmed down
   - "update"
   - "patch"
   - "delete"
+- apiGroups:
+  - apps
+  resources:
+  - deployments/scale
+  verbs:
+  - get
+  - update
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
