@@ -22,13 +22,14 @@ spec:
               processing_mode:
                 request_header_mode: "SEND"
                 response_header_mode: "SKIP"
-                request_body_mode: "FULL_DUPLEX_STREAMED"
+                request_body_mode: "NONE"
                 response_body_mode: "NONE"
-                request_trailer_mode: "SEND"
+                request_trailer_mode: "SKIP"
                 response_trailer_mode: "SKIP"
               grpc_service:
                 envoy_grpc:
                   cluster_name: outbound|{{ .Values.activator.port }}||{{ include "activatorName" . }}.{{ .Release.Namespace }}.svc.cluster.local
+
 ---
 apiVersion: networking.istio.io/v1
 kind: DestinationRule

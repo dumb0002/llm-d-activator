@@ -16,7 +16,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	types "github.com/llm-d-incubation/llm-d-activator/api/v1"
+	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/datastore"
 	v1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
+	errutil "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/error"
 	logutil "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/logging"
 
 	autoscaling "k8s.io/api/autoscaling/v1"
@@ -43,6 +45,7 @@ type Activator struct {
 	DynamicClient *dynamic.DynamicClient
 	ScaleClient   scale.ScalesGetter
 	Mapper        meta.RESTMapper
+	datastore     datastore.Datastore
 
 	// DefaultScaleToZeroGracePeriod is the time we will wait for a scale-to-zero decision to complete
 	DefaultScaleToZeroGracePeriod time.Duration
@@ -57,7 +60,7 @@ type Activator struct {
 	ScaleToZeroRequestRetentionPeriod time.Duration
 }
 
-func NewActivatorWithConfig(config *rest.Config) (*Activator, error) {
+func NewActivatorWithConfig(config *rest.Config, datastore datastore.Datastore) (*Activator, error) {
 	scaleClient, mapper, err := InitScaleClient(config)
 	if err != nil {
 		return nil, err
@@ -69,6 +72,7 @@ func NewActivatorWithConfig(config *rest.Config) (*Activator, error) {
 	}
 
 	return &Activator{
+		datastore:                         datastore,
 		DynamicClient:                     dynamicClient,
 		Mapper:                            mapper,
 		ScaleClient:                       scaleClient,
@@ -76,6 +80,30 @@ func NewActivatorWithConfig(config *rest.Config) (*Activator, error) {
 		DefaultScaleFromZeroGracePeriod:   60 * time.Second,
 		DefaultScaleDownDelay:             300 * time.Second,
 		ScaleToZeroRequestRetentionPeriod: 5 * time.Second}, nil
+}
+
+// MayActivate checks if the inferencePool associated with the request is scaled to one or more replicas
+func (a *Activator) MayActivate(ctx context.Context) error {
+	logger := log.FromContext(ctx)
+
+	// Get InferencePool Info
+	pool, err := a.datastore.PoolGet()
+	if err != nil {
+		return err
+	}
+
+	logger.V(logutil.TRACE).Info("InferencePool found", "name", pool.Name, "namespace", pool.Namespace)
+
+	if ready := a.InferencePoolReady(ctx, pool); !ready {
+		return errutil.Error{Code: errutil.ServiceUnavailable, Msg: "failed to find active candidate pods in the inferencePool for serving the request"}
+	}
+
+	// TODO:
+	//    1. Extend Datastore to keep track of the timestamp when an inferencePool receives a request
+	//       - This value will be used to later scale down the deployment associated with an inferencePool if no requests are received after x seconds
+	//    2. Add a client responsible to scale down an inferencePool if it does not receive any request after x seconds
+	//    3. Add a queue to store pending requests - global queue or a local queue?
+	return nil
 }
 
 func (a *Activator) InferencePoolReady(ctx context.Context, pool *v1.InferencePool) bool {

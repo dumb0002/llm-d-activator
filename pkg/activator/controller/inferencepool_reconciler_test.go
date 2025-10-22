@@ -30,12 +30,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/datastore"
-	utiltest "github.com/llm-d-incubation/llm-d-activator/pkg/activator/util/testing"
-
 	v1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	"sigs.k8s.io/gateway-api-inference-extension/apix/v1alpha2"
 	"sigs.k8s.io/gateway-api-inference-extension/pkg/common"
+	utiltest "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/testing"
+
+	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/datastore"
 )
 
 var (
