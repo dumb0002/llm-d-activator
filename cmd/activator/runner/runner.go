@@ -40,9 +40,9 @@ import (
 	"sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/logging"
 	"sigs.k8s.io/gateway-api-inference-extension/version"
 
-	"github.com/llm-d-incubation/llm-d-activator/internal/runnable"
 	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/datastore"
 	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/requestcontrol"
+	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/runnable"
 	runserver "github.com/llm-d-incubation/llm-d-activator/pkg/activator/server"
 )
 

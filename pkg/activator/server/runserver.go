@@ -34,12 +34,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/gateway-api-inference-extension/pkg/common"
 
-	"github.com/llm-d-incubation/llm-d-activator/internal/runnable"
-	tlsutil "github.com/llm-d-incubation/llm-d-activator/internal/tls"
 	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/controller"
 	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/datastore"
 	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/handlers"
 	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/requestcontrol"
+	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/runnable"
+	tlsutil "github.com/llm-d-incubation/llm-d-activator/pkg/activator/tls"
 )
 
 // ExtProcServerRunner provides methods to manage an external process server.
