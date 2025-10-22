@@ -22,8 +22,6 @@ RUN go mod download
 # Sources
 COPY cmd/activator ./cmd/activator
 COPY pkg/activator ./pkg/activator
-COPY internal ./internal
-COPY api ./api
 WORKDIR /src/cmd/activator
 RUN go build -ldflags="-X github.com/llm-d-incubation/llm-d-activator/version.CommitSHA=${COMMIT_SHA} -X github.com/llm-d-incubation/llm-d-activator/version.BuildRef=${BUILD_REF}" -o /activator
 

@@ -15,7 +15,6 @@ import (
 	"k8s.io/client-go/restmapper"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	types "github.com/llm-d-incubation/llm-d-activator/api/v1"
 	"github.com/llm-d-incubation/llm-d-activator/pkg/activator/datastore"
 	v1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	errutil "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/error"
@@ -125,7 +124,7 @@ func (a *Activator) InferencePoolReady(ctx context.Context, pool *v1.InferencePo
 		scaleGracePeriod = int(a.DefaultScaleFromZeroGracePeriod)
 	}
 
-	gvr, err := types.GetResourceForKind(a.Mapper, pool.Annotations[ObjectApiVersionKey], pool.Annotations[ObjectkindKey])
+	gvr, err := GetResourceForKind(a.Mapper, pool.Annotations[ObjectApiVersionKey], pool.Annotations[ObjectkindKey])
 	if err != nil {
 		msg := "Failed to parse Group, Version, Kind, Resource"
 		logger.Error(err, msg, "apiVersion", pool.Annotations[ObjectApiVersionKey], "kind", pool.Annotations[ObjectkindKey])
