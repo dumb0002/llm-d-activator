@@ -104,6 +104,16 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
+	// --- Setup Deactivator ---
+	deactivator, err := requestcontrol.DeactivatorWithConfig(cfg, &datastore)
+	if err != nil {
+		setupLog.Error(err, "Failed to setup Deactivator")
+		return err
+	}
+
+	//Start Deactivator
+	go deactivator.MonitorInferencePoolIdleness(ctx)
+
 	// --- Setup Metrics Server ---
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:    fmt.Sprintf(":%d", *metricsPort),

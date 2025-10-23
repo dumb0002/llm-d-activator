@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	v1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 )
@@ -31,11 +32,14 @@ var (
 // The datastore is a local cache of relevant data for the given InferencePool (currently all pulled from k8s-api)
 type Datastore interface {
 	// InferencePool operations
-
 	// PoolSet sets the given pool in datastore.
 	PoolSet(pool *v1.InferencePool)
 	PoolGet() (*v1.InferencePool, error)
 	PoolHasSynced() bool
+
+	GetTicker() *time.Ticker
+	ResetTicker(t time.Duration)
+	StopTicker()
 
 	// Clears the store state, happens when the pool gets deleted.
 	Clear()
@@ -45,6 +49,7 @@ func NewDatastore(parentCtx context.Context) Datastore {
 	store := &datastore{
 		parentCtx: parentCtx,
 		poolMu:    sync.RWMutex{},
+		ticker:    time.NewTicker(60 * time.Second),
 	}
 	return store
 }
@@ -55,6 +60,8 @@ type datastore struct {
 	// poolMu is used to synchronize access to pool map.
 	poolMu sync.RWMutex
 	pool   *v1.InferencePool
+	//poolLastRequestTime time.Time
+	ticker *time.Ticker
 }
 
 // /// InferencePool APIs ///
@@ -82,4 +89,22 @@ func (ds *datastore) PoolHasSynced() bool {
 
 func (ds *datastore) Clear() {
 	ds.PoolSet(nil)
+}
+
+func (ds *datastore) ResetTicker(t time.Duration) {
+	ds.poolMu.RLock()
+	defer ds.poolMu.RUnlock()
+	ds.ticker.Reset(t)
+}
+
+func (ds *datastore) GetTicker() *time.Ticker {
+	ds.poolMu.RLock()
+	defer ds.poolMu.RUnlock()
+	return ds.ticker
+}
+
+func (ds *datastore) StopTicker() {
+	ds.poolMu.RLock()
+	defer ds.poolMu.RUnlock()
+	ds.ticker.Stop()
 }

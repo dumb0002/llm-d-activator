@@ -33,6 +33,15 @@ const (
 	ObjectkindKey               = "activator.llm-d.ai/target-kind"
 	ObjectNameKey               = "activator.llm-d.ai/target-name"
 	ScaleFromZeroGracePeriodKey = "activator.llm-d.ai/scale-from-zero-grace-period" // Optional annotation
+
+	// DefaultScaleFromZeroGracePeriod is the time we will wait for a scale-from-zero decision to complete
+	DefaultScaleFromZeroGracePeriod = time.Duration(60 * time.Second)
+
+	// DefaultScaleDownDelay is the amount of time that must pass before a scale-down decision is applied
+	DefaultScaleDownDelay = time.Duration(120 * time.Second)
+
+	// ScaleToZeroRequestRetentionPeriod it is the amount of time we will wait before releasing the request after a scale from zero event
+	ScaleToZeroRequestRetentionPeriod = time.Duration(5 * time.Second)
 )
 
 type ScaledObjectData struct {
@@ -51,18 +60,6 @@ type Activator struct {
 	scalingUp           bool
 	guard               chan struct{}
 	scalingUpAndGuardMu sync.Mutex
-
-	// DefaultScaleToZeroGracePeriod is the time we will wait for a scale-to-zero decision to complete
-	DefaultScaleToZeroGracePeriod time.Duration
-
-	// DefaultScaleFromZeroGracePeriod is the time we will wait for a scale-from-zero decision to complete
-	DefaultScaleFromZeroGracePeriod time.Duration
-
-	// DefaultScaleDownDelay is the amount of time that must pass before a scale-down decision is applied
-	DefaultScaleDownDelay time.Duration
-
-	// ScaleToZeroRequestRetentionPeriod it is the amount of time we will wait before releasing the request after a scale from zero event
-	ScaleToZeroRequestRetentionPeriod time.Duration
 }
 
 func NewActivatorWithConfig(config *rest.Config, datastore datastore.Datastore) (*Activator, error) {
@@ -77,14 +74,10 @@ func NewActivatorWithConfig(config *rest.Config, datastore datastore.Datastore) 
 	}
 
 	return &Activator{
-		datastore:                         datastore,
-		DynamicClient:                     dynamicClient,
-		Mapper:                            mapper,
-		ScaleClient:                       scaleClient,
-		DefaultScaleToZeroGracePeriod:     60 * time.Second,
-		DefaultScaleFromZeroGracePeriod:   60 * time.Second,
-		DefaultScaleDownDelay:             300 * time.Second,
-		ScaleToZeroRequestRetentionPeriod: 5 * time.Second}, nil
+		datastore:     datastore,
+		DynamicClient: dynamicClient,
+		Mapper:        mapper,
+		ScaleClient:   scaleClient}, nil
 }
 
 // MayActivate checks if the inferencePool associated with the request is scaled to one or more replicas
@@ -103,7 +96,7 @@ func (a *Activator) MayActivate(ctx context.Context) error {
 	if scalingUp, guard := a.isScalingUp(); scalingUp {
 		logger.V(logutil.DEBUG).Info("InferencePool is currently scaling up. Waiting for it to be done.")
 
-		a.waitOnGuard(guard, a.DefaultScaleFromZeroGracePeriod)
+		a.waitOnGuard(guard, DefaultScaleFromZeroGracePeriod)
 		return nil // After scaling up is done, allow the request to proceed even if scaling failed
 	}
 
@@ -112,6 +105,13 @@ func (a *Activator) MayActivate(ctx context.Context) error {
 		return errutil.Error{Code: errutil.ServiceUnavailable, Msg: "failed to find active candidate pods in the inferencePool for serving the request"}
 	}
 
+	// Reset the Deactivator ticker for scale to zero monitoring
+	scaleDownDelay := DefaultScaleDownDelay
+	if value, found := GetOptionalPoolAnnotation(logger, ScaleDownDelayKey, pool); found {
+		scaleDownDelay, _ = time.ParseDuration(value)
+	}
+
+	a.datastore.ResetTicker(scaleDownDelay)
 	return nil
 }
 
@@ -122,14 +122,14 @@ func (a *Activator) InferencePoolReady(ctx context.Context, pool *v1.InferencePo
 
 	// TODO: store annotation values in datastore to avoid reading them every time
 	// verify required inferencePool annotations
-	valid := a.verifyPoolObjectAnnotations(logger, pool)
+	valid := VerifyPoolObjectAnnotations(logger, pool)
 	if !valid {
 		return false
 	}
 
 	// extract optional inferencePool annotation if it exists, otherwise use a default value
-	scaleGracePeriod := a.DefaultScaleFromZeroGracePeriod
-	if value, found := a.getOptionalPoolAnnotation(logger, ScaleFromZeroGracePeriodKey, pool); found {
+	scaleGracePeriod := DefaultScaleFromZeroGracePeriod
+	if value, found := GetOptionalPoolAnnotation(logger, ScaleFromZeroGracePeriodKey, pool); found {
 		scaleGracePeriod, _ = time.ParseDuration(value)
 	}
 
@@ -159,7 +159,7 @@ func (a *Activator) InferencePoolReady(ctx context.Context, pool *v1.InferencePo
 
 	// Need to scale inferencePool workload from zero to one replicas
 	numReplicas := int32(1)
-	scaleData := ScaledObjectData{name: pool.Annotations[ObjectNameKey], scaleGracePeriod: a.DefaultScaleFromZeroGracePeriod, numReplicas: numReplicas, scaleObject: scaleObject}
+	scaleData := ScaledObjectData{name: pool.Annotations[ObjectNameKey], scaleGracePeriod: DefaultScaleFromZeroGracePeriod, numReplicas: numReplicas, scaleObject: scaleObject}
 	return a.scaleInferencePool(ctx, logger, namespace, scaleData, gr, gvr)
 }
 
@@ -209,7 +209,7 @@ func (a *Activator) scaleInferencePool(ctx context.Context, logger logr.Logger, 
 	ready := a.InferencePoolPodsReady(logger, namespace, objData.name, objData.numReplicas, objData.scaleGracePeriod, gr, gvr)
 	if ready {
 		// Give some time for the Endpoint Picker to pick up the newly created pods
-		time.Sleep(a.ScaleToZeroRequestRetentionPeriod)
+		time.Sleep(ScaleToZeroRequestRetentionPeriod)
 		return true
 	}
 	return false
@@ -231,7 +231,7 @@ func InitScaleClient(config *rest.Config) (scale.ScalesGetter, meta.RESTMapper, 
 	), restMapper, nil
 }
 
-func (a *Activator) verifyPoolObjectAnnotations(logger logr.Logger, pool *v1.InferencePool) bool {
+func VerifyPoolObjectAnnotations(logger logr.Logger, pool *v1.InferencePool) bool {
 	if _, ok := pool.Annotations[ObjectApiVersionKey]; !ok {
 		logger.Info(fmt.Sprintf("Annotation '%s' not found on pool '%s'", ObjectApiVersionKey, pool.Name))
 		return false
@@ -247,7 +247,7 @@ func (a *Activator) verifyPoolObjectAnnotations(logger logr.Logger, pool *v1.Inf
 	return true
 }
 
-func (a *Activator) getOptionalPoolAnnotation(logger logr.Logger, annotationKey string, pool *v1.InferencePool) (string, bool) {
+func GetOptionalPoolAnnotation(logger logr.Logger, annotationKey string, pool *v1.InferencePool) (string, bool) {
 	if value, ok := pool.Annotations[annotationKey]; ok {
 		return value, true
 	}
