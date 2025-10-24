@@ -166,6 +166,9 @@ func (a *Activator) InferencePoolReady(ctx context.Context, pool *v1.InferencePo
 func (a *Activator) InferencePoolPodsReady(logger logr.Logger, namespace, objname string, numReplicas int32, scaleGracePeriod time.Duration, gr schema.GroupResource, gvr schema.GroupVersionResource) bool {
 	// Don't inherit the parent context to avoid cancellation
 	err := wait.PollUntilContextTimeout(context.Background(), 1*time.Second, scaleGracePeriod, false, func(ctx context.Context) (done bool, err error) {
+
+		a.datastore.ResetTicker(DefaultScaleDownDelay) // turn off the deactivator during scale from zero events
+
 		unstructuredObj, err := a.DynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, objname, metav1.GetOptions{})
 		if err != nil {
 			logger.Error(err, "Error getting unstructured object")
