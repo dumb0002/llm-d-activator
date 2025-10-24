@@ -60,7 +60,6 @@ type datastore struct {
 	// poolMu is used to synchronize access to pool map.
 	poolMu sync.RWMutex
 	pool   *v1.InferencePool
-	//poolLastRequestTime time.Time
 	ticker *time.Ticker
 }
 
